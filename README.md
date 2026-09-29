@@ -62,6 +62,16 @@ vmbr0
 
 ---
 
+## Screenshots
+
+### Proxmox Glances Server
+
+![Proxmox Glances Server](screenshots/proxmox-glances-server.png)
+
+### Final Glances Monitor
+
+![Final Glances Monitor](screenshots/proxmox-glances-final.png)
+
 # 1. Initial Investigation
 
 The first step was checking whether the Proxmox API proxy itself was running.
