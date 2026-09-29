@@ -28,14 +28,13 @@ The final setup uses the monitoring VM as a **Glances client**, connecting to a 
 * Dell OptiPlex 3060 Micro
 * Intel Core i5-8500T
 * 8 GB RAM
-* Proxmox VE
-* Debian GNU/Linux 13 (Trixie) base environment
+* Proxmox VE 7.0.2-6-pve
 * Proxmox host IP: `192.168.0.50`
 
 ### Monitoring VM
 
 * VM ID: `100`
-* Debian GNU/Linux
+* Debian GNU/Linux 13 (Trixie)
 * 1 GB RAM
 * 16 GB virtual disk
 * VM IP: `192.168.0.142`
@@ -71,6 +70,53 @@ vmbr0
 ### Final Glances Monitor
 
 ![Final Glances Monitor](screenshots/proxmox-glances-final.png)
+
+---
+
+## Architecture
+
+```text
+                    ┌─────────────────────────┐
+                    │     Physical Monitor    │
+                    │                         │
+                    │   Dedicated display     │
+                    └────────────┬────────────┘
+                                 │
+                                 ▼
+                    ┌─────────────────────────┐
+                    │       VM 100            │
+                    │   Debian Monitor        │
+                    │   192.168.0.142         │
+                    │                         │
+                    │   Glances Client        │
+                    │   TTY1 Autologin         │
+                    └────────────┬────────────┘
+                                 │
+                         Glances connection
+                              :61209
+                                 │
+                                 ▼
+                    ┌─────────────────────────┐
+                    │      Proxmox Host       │
+                    │      192.168.0.50        │
+                    │                         │
+                    │    Glances Server       │
+                    │       :61209            │
+                    └────────────┬────────────┘
+                                 │
+              ┌──────────────────┼──────────────────┐
+              ▼                  ▼                  ▼
+        ┌───────────┐      ┌───────────┐     ┌──────────────┐
+        │   VM 100  │      │   VM 101  │     │ Host metrics │
+        │           │      │           │     │ & processes  │
+        └───────────┘      └───────────┘     └──────────────┘
+```
+
+The monitoring VM acts as the display endpoint rather than collecting the metrics itself. Glances runs as a server on the Proxmox host, while VM 100 connects to it as a client and displays the standard Glances interface.
+
+This allows the dedicated monitor to display the Proxmox host's system resources, processes, virtual machines and services.
+
+---
 
 # 1. Initial Investigation
 
@@ -150,10 +196,10 @@ This confirmed that:
 
 * The monitoring VM could reach the Proxmox API.
 * The API endpoint was responding.
-* The `dashboard3` token authenticated successfully.
-* The token itself did not need to be recreated for the final monitoring architecture.
+* The configured `dashboard3` token could authenticate successfully when passed correctly.
+* The API authentication path was functional.
 
-The API token was ultimately not required for the final Glances-based monitoring setup.
+The API token was not required for the final Glances-based monitoring architecture, so no API token was needed for the final monitoring connection.
 
 ---
 
@@ -209,41 +255,22 @@ That was not the desired result.
 
 The goal was instead:
 
-> Physical monitor → monitoring VM → Glances client → Proxmox host
+```text
+Physical monitor
+       │
+       ▼
+Monitoring VM
+Glances client
+       │
+       │ :61209
+       ▼
+Proxmox host
+Glances server
+```
 
 Glances supports a client/server architecture, so the monitoring design was changed accordingly.
 
-### Final architecture
-
-```text
-                    ┌─────────────────────────┐
-                    │     Physical Monitor    │
-                    └────────────┬────────────┘
-                                 │
-                                 ▼
-                    ┌─────────────────────────┐
-                    │       VM 100            │
-                    │   Debian Monitor        │
-                    │   192.168.0.142         │
-                    │                         │
-                    │   Glances Client        │
-                    └────────────┬────────────┘
-                                 │
-                         Glances connection
-                                 │
-                                 ▼
-                    ┌─────────────────────────┐
-                    │     Proxmox Host        │
-                    │   192.168.0.50           │
-                    │                         │
-                    │   Glances Server        │
-                    └─────────────────────────┘
-                                 │
-             ┌───────────────────┼───────────────────┐
-             ▼                   ▼                   ▼
-          VM 100              VM 101            Proxmox
-                                                processes
-```
+The monitoring VM's local Glances server was disabled, and the VM was configured to act only as a client.
 
 ---
 
@@ -353,7 +380,7 @@ The displayed statistics included:
 * KVM virtual machines
 * Proxmox services
 
-This confirmed that the monitoring VM was now displaying the **Proxmox host**, rather than monitoring itself.
+This confirmed that the Glances client was receiving metrics from the **Glances server running on the Proxmox host**, rather than monitoring VM 100 locally.
 
 ---
 
@@ -529,3 +556,4 @@ This troubleshooting process reinforced several useful Linux and infrastructure 
 The monitoring VM successfully connects to the Proxmox host using the standard Glances interface, with systemd configured to launch the monitor automatically.
 
 The remaining physical validation is to connect the dedicated display and confirm the complete boot-to-monitor workflow.
+
