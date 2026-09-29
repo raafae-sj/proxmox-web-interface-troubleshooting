@@ -70,7 +70,6 @@ vmbr0
 ### Final Glances Monitor
 
 ![Final Glances Monitor](screenshots/proxmox-glances-final.png)
-
 ---
 
 ## Architecture
@@ -78,8 +77,6 @@ vmbr0
 ```text
                     ┌─────────────────────────┐
                     │     Physical Monitor    │
-                    │                         │
-                    │   Dedicated display     │
                     └────────────┬────────────┘
                                  │
                                  ▼
@@ -89,32 +86,28 @@ vmbr0
                     │   192.168.0.142         │
                     │                         │
                     │   Glances Client        │
-                    │   TTY1 Autologin         │
                     └────────────┬────────────┘
                                  │
                          Glances connection
-                              :61209
                                  │
                                  ▼
                     ┌─────────────────────────┐
-                    │      Proxmox Host       │
-                    │      192.168.0.50        │
+                    │     Proxmox Host        │
+                    │   192.168.0.50           │
                     │                         │
-                    │    Glances Server       │
-                    │       :61209            │
-                    └────────────┬────────────┘
+                    │   Glances Server        │
+                    └─────────────────────────┘
                                  │
-              ┌──────────────────┼──────────────────┐
-              ▼                  ▼                  ▼
-        ┌───────────┐      ┌───────────┐     ┌──────────────┐
-        │   VM 100  │      │   VM 101  │     │ Host metrics │
-        │           │      │           │     │ & processes  │
-        └───────────┘      └───────────┘     └──────────────┘
+             ┌───────────────────┼───────────────────┐
+             ▼                   ▼                   ▼
+          VM 100              VM 101          Host system resources
+       (CPU/RAM/disk)      (CPU/RAM/disk)     & Proxmox processes
+                                               (pveproxy, pvedaemon,
+                                                pvestatd, pve-firewall,
+                                                Tailscale)
 ```
 
-The monitoring VM acts as the display endpoint rather than collecting the metrics itself. Glances runs as a server on the Proxmox host, while VM 100 connects to it as a client and displays the standard Glances interface.
-
-This allows the dedicated monitor to display the Proxmox host's system resources, processes, virtual machines and services.
+The monitoring VM does not query the Proxmox host directly for raw stats — it runs as a Glances **client**, receiving metrics that the Glances **server** on the Proxmox host collects and reports.
 
 ---
 
@@ -184,7 +177,7 @@ monitor@pve!dashboard3
 
 A direct API request was then performed from the monitoring VM.
 
-Initially, Bash interpreted the `!` character as history expansion.
+Initially, Bash interpreted the `!` character as history expansion, which corrupted the request before it reached the API.
 
 After disabling history expansion, the same authentication request returned:
 
@@ -195,11 +188,10 @@ After disabling history expansion, the same authentication request returned:
 This confirmed that:
 
 * The monitoring VM could reach the Proxmox API.
-* The API endpoint was responding.
-* The configured `dashboard3` token could authenticate successfully when passed correctly.
-* The API authentication path was functional.
+* The API endpoint was responding correctly.
+* The `dashboard3` token was valid, and the earlier failures were caused by shell history expansion mangling the request, not by a bad or missing token.
 
-The API token was not required for the final Glances-based monitoring architecture, so no API token was needed for the final monitoring connection.
+This branch of the investigation was useful for ruling out an API/authentication problem, but it was not what ultimately fixed the monitoring setup — the final solution used Glances directly rather than the Proxmox API (see Section 4).
 
 ---
 
@@ -255,22 +247,9 @@ That was not the desired result.
 
 The goal was instead:
 
-```text
-Physical monitor
-       │
-       ▼
-Monitoring VM
-Glances client
-       │
-       │ :61209
-       ▼
-Proxmox host
-Glances server
-```
+> Physical monitor → monitoring VM → Glances client → Proxmox host's Glances server
 
-Glances supports a client/server architecture, so the monitoring design was changed accordingly.
-
-The monitoring VM's local Glances server was disabled, and the VM was configured to act only as a client.
+Glances supports a client/server architecture, so the monitoring design was changed accordingly: the Proxmox host would run the Glances server and collect its own metrics, while the monitoring VM would run purely as a Glances client displaying those metrics.
 
 ---
 
@@ -370,7 +349,7 @@ The standard Glances interface displayed:
 Connected to proxmox
 ```
 
-The displayed statistics included:
+The displayed statistics, collected by the Glances server on the Proxmox host and rendered by the client on the monitoring VM, included:
 
 * Proxmox CPU usage
 * Memory usage
@@ -380,7 +359,7 @@ The displayed statistics included:
 * KVM virtual machines
 * Proxmox services
 
-This confirmed that the Glances client was receiving metrics from the **Glances server running on the Proxmox host**, rather than monitoring VM 100 locally.
+This confirmed that the monitoring VM was now displaying data **from** the Proxmox host, rather than monitoring itself.
 
 ---
 
@@ -551,9 +530,9 @@ This troubleshooting process reinforced several useful Linux and infrastructure 
 
 ## Project Status
 
-**Working**
+**Working — software configuration complete, physical validation pending**
 
-The monitoring VM successfully connects to the Proxmox host using the standard Glances interface, with systemd configured to launch the monitor automatically.
+The monitoring VM successfully connects to the Proxmox host using the standard Glances interface, and systemd is configured to launch the monitor automatically on the VM.
 
-The remaining physical validation is to connect the dedicated display and confirm the complete boot-to-monitor workflow.
+The remaining step is to connect the dedicated physical display and confirm the complete boot-to-monitor workflow end to end (power-on → TTY1 autologin → Glances client → live Proxmox host data on screen). Until that's been physically verified, this should be treated as software-verified rather than fully verified.
 
